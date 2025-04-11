@@ -11,9 +11,10 @@ Environnement variables :
       - MQTT_BROKER_PASSWORD=password                  # (optional)
       - TELEGRAM_BOT_API_KEY=xxxxxxxxxxxxxxxxxxxxxxx   # See Telegram doc https://core.telegram.org/
       - TELEGRAM_BOT_CHAT_ID=xxxxxxxxxxxxxx            # See Telegram doc https://core.telegram.org/
-      - CAR_ID=1                                       # (optional) Your "n"th car in your Tesla's inventory... default 1st one [1-9]
+      - TZ=                                            # Timezone
+      - CAR_ID=1                                       # (optional) Your "n"th car in your Tesla's inventory
       - TIMESTAMP=bottom                               # (optional) prints the date at the [bottom|top|none] of each message, none won't prints it
-      - UNITS=Km                                       # (optional) Metric or Imperial measurement display [Km|Miles] or [Metric|Imperial] metric defaults
+      - UNITS=Km                                       # (optional) Metric or Imperial measurement display [Km|Miles] 
       - DEBUG=True                                     # (optional) Display on console the bot messages / default is false
 ```
 
@@ -81,9 +82,10 @@ services:
       - MQTT_BROKER_PASSWORD=password                  # (optional)
       - TELEGRAM_BOT_API_KEY=xxxxxxxxxxxxxxxxxxxxxxx   # See Telegram doc https://core.telegram.org/
       - TELEGRAM_BOT_CHAT_ID=xxxxxxxxxxxxxx            # See Telegram doc https://core.telegram.org/
-      - CAR_ID=1                                       # (optional) Your "n"th car in your Tesla's inventory... default 1st one [1-9]
+      - TZ=                                            # Timezone
+      - CAR_ID=1                                       # (optional) Your "n"th car in your Tesla's inventory
       - TIMESTAMP=bottom                               # (optional) prints the date at the [bottom|top|none] of each message, none won't prints it
-      - UNITS=Km                                       # (optional) Metric or Imperial measurement display [Km|Miles] or [Metric|Imperial] metric defaults
+      - UNITS=Km                                       # (optional) Metric or Imperial measurement display [Km|Miles] 
       - DEBUG=True                                     # (optional) Display on console the bot messages / default is false
 
 volumes:
