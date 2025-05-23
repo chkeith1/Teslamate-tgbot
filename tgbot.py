@@ -10,7 +10,6 @@ import time
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# Configuration
 CONFIG = {
     "car_id": os.getenv("CAR_ID", "1"),
     "telegram_chat_id": os.getenv("TELEGRAM_BOT_CHAT_ID"),
@@ -35,7 +34,7 @@ elif CONFIG["units"] in ["imperial", "miles"]:
 
 MESSAGES = {
     "success": "✔️ Successfully connected to MQTT broker",
-    "version": "Version 20250331-01",
+    "version": "Version 20250505-01",
     "broker_failed": "❌ Failed to connect to MQTT broker",
     "state_online": "📶 Car Online",
     "state_asleep": "💤 Car Asleep",
@@ -84,13 +83,15 @@ class VehicleState:
         self.battery_level = -1.0
         self.est_range = -1.0
         self.charge_energy_added = 0.0
-        self.charge_session_kwh = 0.0  # Track kWh added during charging session
+        self.charge_session_kwh = 0.0  
         self.charger_power = 0.0
         self.charger_current = 0.0
         self.time_to_full_charge = 0.0
         self.charge_ended = False
         self.new_info_available = False
-        self.last_charging_update_time = 0  # Timestamp of last charging update message
+        self.last_charging_update_time = 0
+        self.charging_start_time = 0
+        self.charging_start_kwh = 0.0 
 
 vehicle_state = VehicleState()
 
@@ -172,11 +173,13 @@ def on_message(client, userdata, msg):
         vehicle_state.locked = new_locked
     elif topic == f"teslamate/cars/{CONFIG['car_id']}/state":
         new_state = payload
-        # Check if charging ended due to state change (unplugged)
         if vehicle_state.state == "charging" and new_state != "charging":
-            if vehicle_state.charge_session_kwh > 0:
-                message = f"🔌 Charging Ended\n⚡ {vehicle_state.charge_session_kwh:.2f} kWh Added"
-                send_telegram_message(message)
+            vehicle_state.charge_session_kwh = 0.0
+            vehicle_state.charging_start_time = 0
+            vehicle_state.charging_start_kwh = 0.0
+        if new_state == "charging":
+            vehicle_state.charging_start_time = time.time()
+            vehicle_state.charging_start_kwh = vehicle_state.charge_energy_added
             vehicle_state.charge_session_kwh = 0.0
         if vehicle_state.state != new_state:
             vehicle_state.new_info_available = True
@@ -200,7 +203,8 @@ def on_message(client, userdata, msg):
         vehicle_state.est_range = float(payload)
     elif topic == f"teslamate/cars/{CONFIG['car_id']}/charge_energy_added":
         vehicle_state.charge_energy_added = float(payload)
-        vehicle_state.charge_session_kwh = float(payload)  # Update session kWh
+        if vehicle_state.state == "charging" and vehicle_state.time_to_full_charge > 0:
+            vehicle_state.charge_session_kwh = max(vehicle_state.charge_energy_added - vehicle_state.charging_start_kwh, 0)
     elif topic == f"teslamate/cars/{CONFIG['car_id']}/charger_power":
         vehicle_state.charger_power = float(payload)
     elif topic == f"teslamate/cars/{CONFIG['car_id']}/charger_actual_current":
@@ -208,24 +212,28 @@ def on_message(client, userdata, msg):
     elif topic == f"teslamate/cars/{CONFIG['car_id']}/time_to_full_charge":
         new_time_to_full_charge = float(payload)
         if new_time_to_full_charge > 0:
+            if vehicle_state.time_to_full_charge == 0:
+                vehicle_state.charging_start_time = time.time()
+                vehicle_state.charging_start_kwh = vehicle_state.charge_energy_added
+                vehicle_state.charge_session_kwh = 0.0
             vehicle_state.time_to_full_charge = new_time_to_full_charge
             if vehicle_state.state == "charging":
                 current_time = time.time()
-                # Rate limit charging updates to once every 5 minutes (300 seconds)
                 if current_time - vehicle_state.last_charging_update_time >= 300:
                     vehicle_state.new_info_available = True
                     vehicle_state.last_charging_update_time = current_time
-        elif new_time_to_full_charge == 0 and vehicle_state.charge_ended:
+        elif new_time_to_full_charge == 0:
             vehicle_state.time_to_full_charge = 0
-            vehicle_state.new_info_available = True
-            # Send kWh charged message when charging ends
             if vehicle_state.charge_session_kwh > 0:
-                message = f"🔌 Charging Ended\n⚡ {vehicle_state.charge_session_kwh:.2f} kWh Added"
+                current_time = time.time()
+                duration_seconds = current_time - vehicle_state.charging_start_time
+                hours = duration_seconds / 3600
+                hours_display = f"{hours:.1f}"
+                message = f"🔌 Charging Ended\n⚡ {vehicle_state.charge_session_kwh:.2f} kWh Added\n⏰ Charged for {hours_display}hrs"
                 send_telegram_message(message)
             vehicle_state.charge_session_kwh = 0.0
-            vehicle_state.charge_ended = False
-        if new_time_to_full_charge > 0:
-            vehicle_state.charge_ended = True
+            vehicle_state.charging_start_time = 0
+            vehicle_state.charging_start_kwh = vehicle_state.charge_energy_added
 
     if vehicle_state.new_info_available:
         send_formatted_message()
@@ -260,13 +268,13 @@ def send_formatted_message():
             message.append(f"🛣️ {math.floor(vehicle_state.est_range / 1.609)} Miles")
     
     if vehicle_state.state == "charging":
-        if vehicle_state.time_to_full_charge == 0:
+        if vehicle_state.time_to_full_charge == 0 and vehicle_state.charger_power > 0:
             message.append(MESSAGES["charge_ended"])
         else:
             hours, minutes = divmod(vehicle_state.time_to_full_charge, 1)
             minutes = int(minutes * 60)
             message.append(f"⏳ {int(hours)} {pluralize(MESSAGES['hour'], hours)} {minutes} {pluralize(MESSAGES['minute'], minutes)}")
-        message.append(f"⚡ {vehicle_state.charge_energy_added:.2f} kWh Added")
+        message.append(f"⚡ {vehicle_state.charge_session_kwh:.2f} kWh Added")
         message.append(f"⚡ {vehicle_state.charger_power:.0f} kW")
         message.append(f"⚡ {vehicle_state.charger_current:.0f} A")
     
